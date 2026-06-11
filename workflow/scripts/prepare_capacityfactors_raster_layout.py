@@ -3,15 +3,9 @@
 import _backend_atlite as _backend_atlite
 import geopandas as gpd
 import rioxarray as rxr
-import yaml
 from _plots import create_plot_map, create_plot_overview
 from _schemas import Shapes
-
-
-def read_yaml(filepath):
-    """Open a yaml file as python dictionary."""
-    with open(filepath) as file:
-        return yaml.safe_load(file)
+from _utils import read_yaml
 
 
 def prepare_capacityfactors_raster_layout(
