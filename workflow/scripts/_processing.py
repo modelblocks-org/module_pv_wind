@@ -231,6 +231,68 @@ def assign_to_shapes_and_aggregate3(availability, shapes, cutout):
     return result
 
 
+def get_bins_2(cutout, tech, specs, bin_edges=None):
+    """Bins the cutout grid according to annual capacity factors.
+
+    Parameters:
+    -----------
+    cutout: atlite.Cutout
+    tech: str
+        technology name
+    specs: dict
+        Technology specifications
+    bin_edges: list[float] (optional)
+        Edges of the bins (between 0 and 1). If None, a single bin (0, 1) is used.
+
+    Returns:
+    --------
+    masks: xarray.DataArray
+        Boolean masks for each bin
+    """
+    time_start = time.time()
+
+    # define the  bins
+    if bin_edges is None:
+        bin_edges = [(0.0, 1.0)]
+    else:
+        bin_edges = sorted(set(bin_edges) | {0.0, 1.0})
+
+        if not all(0.0 <= edge <= 1.0 for edge in bin_edges):
+            raise ValueError("bin_edges must be between 0 and 1.")
+
+    n_bins = len(bin_edges) - 1
+
+    if n_bins == 1:
+        # create a mask without computing cf.
+        return xr.DataArray(
+            np.ones((1, cutout.shape[1], cutout.shape[0]), dtype=bool),
+            dims=("bin", "y", "x"),
+            coords={"bin": [0]},
+        )
+
+    # compute mean capacity factor,
+    # as a measure of the resource quality.
+    cf_mean = getattr(cutout, tech)(aggregate_time="mean", **specs)
+    print(f"Computed mean capacity factor in {time.time() - time_start:.2f} seconds.")
+
+    # map relative bin edges onto the CF range.
+    epsilon = 1e-3
+    cf_min = cf_mean.min(dim=("x", "y")) - epsilon
+    cf_max = cf_mean.max(dim=("x", "y")) + epsilon
+
+    edges = cf_min + (cf_max - cf_min) * xr.DataArray(bin_edges, dims="bin_edge")
+
+    lower = edges.isel(bin_edge=slice(None, -1))
+    upper = edges.isel(bin_edge=slice(1, None))
+
+    # Rename the edge dimension so broadcasting produces one dimension
+    # for the bins.
+    lower = lower.rename(bin_edge="bin")
+    upper = upper.rename(bin_edge="bin")
+
+    return ((cf_mean >= lower) & (cf_mean < upper)), cf_mean
+
+
 def get_bins(cutout, shapes, tech, specs, bin_edges=None, per_shape=False):
     """Get bins.
 
