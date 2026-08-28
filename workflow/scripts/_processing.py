@@ -1,17 +1,17 @@
-from gregor.disaggregate import get_belongs_to_matrix
-from rasterio.features import rasterize
+import time
+
+import geopandas as gpd
 import numpy as np
 import xarray as xr
-import geopandas as gpd
 from atlite.gis import ExclusionContainer
-
+from gregor.disaggregate import get_belongs_to_matrix
+from rasterio.features import rasterize
 
 
 def get_belongs_to_matrix(
     raster: xr.DataArray, polygons: gpd.GeoSeries, nodata: int = -1
 ) -> xr.DataArray:
-    r"""
-    Get a matrix which indicates which polygon each raster point belongs to.
+    r"""Get a matrix which indicates which polygon each raster point belongs to.
 
     Parameters
     ----------
@@ -22,7 +22,7 @@ def get_belongs_to_matrix(
     nodata : int
         Value to use as NaN, i.e. for pixels that do not belong to any polygon.
 
-    Returns
+    Returns:
     -------
     xr.DataArray
         Matrix which indicates which polygon each raster point belongs to.
@@ -45,42 +45,18 @@ def get_belongs_to_matrix(
     return xr.DataArray(arr, coords=raster.coords, dims=raster.dims)
 
 
-def assign_coords(data: xr.DataArray, belongs_to: xr.DataArray) -> xr.DataArray:
-    """
-    Assigns new 
-	data: xr.DataArray
-		A DataArray of arbitrary shape and datatype.
-	belongs_to: xr.DataArray
-		New coordinates.
-        Dimensions must overlap, at least partially, with data.
-        For overlapping dimensions, all coordinates must be covered. 
-
-	Returns
-	-------
-	result: xr.DataArray
-		Any numerical value, with coordinates (id, x, y)
-	"""
-    # assert raster.coords[overlap] == id_raster.coords[overlap], "Overlapping coordinates need to match"
-    return data.assign_coords(belongs_to)
-
-
-def aggregate_coords(array, mapping):
-    """
-	array: xr.DataArray
-		A DataArray of arbitrary shape and datatype.
-	mapping: xr.DataArray
-	new_coords: 
-    """
-    # check that each coordinate is mapped
-    # groupby
-    return
-
-
 def assign_to_shapes_and_aggregate(availability, shapes, cutout):
+    """Assigns each pixel of the availability raster to a shape and grid cell and then aggregates.
+
+    Usually, the availability raster has a higher spatial resolution than the cutout grid.
+    Therefore, downsampling to the cutout grid and aggregating would lead to different results than
+    first assigning shapes and grid cells, then aggregating.
+    """
+    time_0 = time.time()
     # TODO How to handle points outside any shape? When to prune?
     # TODO How to handle half- or non-overlapping availability, shapes, cutout?
     # TODO apparently, y coordinates are swapped, ranging from low to high in the output.
-    # Treat shapes as the source of truth. 
+    # Treat shapes as the source of truth.
     # Complain if not all shapes are covered by availability and shapes
     # dump all availability outside shapes.
     _nan = "None"
@@ -92,15 +68,25 @@ def assign_to_shapes_and_aggregate(availability, shapes, cutout):
     grid_reprojected = cutout.grid.to_crs(crs)
 
     # clip availability to the bounds of the shapes
-    minx, miny, maxx, maxy = shapes.total_bounds + [-_margin, -_margin, _margin, _margin]
+    minx, miny, maxx, maxy = shapes.total_bounds + [
+        -_margin,
+        -_margin,
+        _margin,
+        _margin,
+    ]
     # grid_reprojected_clipped = grid_reprojected.rio.clip_box()
     availability_clipped = availability.rio.clip_box(
         minx=minx, miny=miny, maxx=maxx, maxy=maxy
     )
+    print("time taken til clipped:", time.time() - time_0)
 
     # # assign new coordinates that tell to which shape and grid cell each pixel belongs to.
-    belongs_to = get_belongs_to_matrix(availability_clipped, shapes_reprojected.set_index("shape_id").geometry)
-    belongs_to_grid = get_belongs_to_matrix(availability_clipped, grid_reprojected.geometry)
+    belongs_to = get_belongs_to_matrix(
+        availability_clipped, shapes_reprojected.set_index("shape_id").geometry
+    )
+    belongs_to_grid = get_belongs_to_matrix(
+        availability_clipped, grid_reprojected.geometry
+    )
     data_n = availability_clipped.assign_coords(shape_number=belongs_to)
     data_n = data_n.assign_coords(cell_number=belongs_to_grid)
 
@@ -112,51 +98,141 @@ def assign_to_shapes_and_aggregate(availability, shapes, cutout):
         .sum()
         .unstack("cell")
     )
+    print("time taken till aggregated:", time.time() - time_0)
 
-    # # map shape_number to shape_ithend and cell_number to the cells' x and y.
-    shape_id = xr.DataArray([shapes_reprojected.reset_index()["shape_id"].get(i, _nan) for i in res.coords["shape_number"].values], dims="shape_number")
-    x_cell = xr.DataArray([grid_reprojected["x"].get(i) for i in res.coords["cell_number"].values], dims="cell_number").astype(np.float32)
-    y_cell = xr.DataArray([grid_reprojected["y"].get(i) for i in res.coords["cell_number"].values], dims="cell_number").astype(np.float32)
-
-    # map back to shape_id, x, y coordinates. 
-    res = (
-        res.assign_coords(
-            shape_id=shape_id,
-            y=y_cell,
-            x=x_cell,
-        ).set_index(
-            cell_number=["y", "x"],
-            shape_number="shape_id"
-        ).unstack(
-            "cell_number"
-        ).rename(shape_number="shape_id")
+    # # map shape_number to shape_id and cell_number to the cells' x and y.
+    shape_id = xr.DataArray(
+        [
+            shapes_reprojected.reset_index()["shape_id"].get(i, _nan)
+            for i in res.coords["shape_number"].values
+        ],
+        dims="shape_number",
     )
+    x_cell = xr.DataArray(
+        [grid_reprojected["x"].get(i) for i in res.coords["cell_number"].values],
+        dims="cell_number",
+    ).astype(np.float32)
+    y_cell = xr.DataArray(
+        [grid_reprojected["y"].get(i) for i in res.coords["cell_number"].values],
+        dims="cell_number",
+    ).astype(np.float32)
+
+    # map back to shape_id, x, y coordinates.
+    res = (
+        res.assign_coords(shape_id=shape_id, y=y_cell, x=x_cell)
+        .set_index(cell_number=["y", "x"], shape_number="shape_id")
+        .unstack("cell_number")
+        .rename(shape_number="shape_id")
+    )
+    print("time taken till mapped:", time.time() - time_0)
 
     # drop shapes that do not have any availability
-    res = res.where(res.shape_id !=_nan, drop=True)
+    res = res.where(res.shape_id != _nan, drop=True)
+
+    print("time taken:", time.time() - time_0)
 
     return res
 
 
-def get_annual_cf(cutout):
-    pass
+def assign_to_shapes_and_aggregate3(availability, shapes, cutout):
+    """Assign each pixel of availability to a shape and cutout grid cell and aggregates.
 
+    The availability raster is not resampled before aggregation.
 
-def get_bins(cutout):
-    pass
-
-
-
-def get_bins(
-    cutout,
-    shapes,
-    tech,
-    specs,
-    bin_edges=None,
-    per_shape=False,
-):
+    Returns:
+    -------
+    xarray.DataArray
+        Aggregated availability with dimensions ("shape_id", "y_cutout", "x_cutout").
     """
-    Get bins
+    t0 = time.perf_counter()
+
+    margin = 1
+
+    # reproject to common crs
+    crs = availability.rio.crs
+    shapes_reprojected = shapes.to_crs(crs)
+    grid_reprojected = cutout.grid.to_crs(crs)
+
+    # clip availability to shapes
+    minx, miny, maxx, maxy = shapes_reprojected.total_bounds + np.array(
+        [-margin, -margin, margin, margin]
+    )
+
+    availability_clipped = availability.rio.clip_box(
+        minx=minx, miny=miny, maxx=maxx, maxy=maxy
+    )
+
+    print("clipped:", time.perf_counter() - t0)
+
+    # assign every availability pixel to a shape
+    shape_number = get_belongs_to_matrix(
+        availability_clipped, shapes_reprojected.set_index("shape_id").geometry
+    )
+
+    print("shape rasterized:", time.perf_counter() - t0)
+
+    # assign every availability pixel to a cutout grid cell
+    cell_number = get_belongs_to_matrix(availability_clipped, grid_reprojected.geometry)
+
+    print("grid rasterized:", time.perf_counter() - t0)
+
+    # aggregate availability by shape and grid cell
+    values = availability_clipped.values
+
+    n_shapes = len(shapes_reprojected)
+    n_cells = len(grid_reprojected)
+
+    # flatten once
+    values = values.ravel()
+    shape_number = np.asarray(shape_number).ravel()
+    cell_number = np.asarray(cell_number).ravel()
+
+    # ignore pixels which aren't assigned to either a shape or cell.
+    valid = (shape_number >= 0) & (cell_number >= 0) & np.isfinite(values)
+
+    shape_number = shape_number[valid].astype(np.int64, copy=False)
+    cell_number = cell_number[valid].astype(np.int64, copy=False)
+    values = values[valid]
+
+    # Map (shape_number, cell_number) -> one integer.
+    #
+    #     group = shape * n_cells + cell
+    #
+    # This gives every shape/cell combination a unique integer.
+    group_number = shape_number * n_cells + cell_number
+
+    aggregated = np.bincount(group_number, weights=values, minlength=n_shapes * n_cells)
+
+    aggregated = aggregated.reshape(n_shapes, n_cells)
+
+    print("aggregated:", time.perf_counter() - t0)
+
+    # construct output
+    shape_ids = shapes_reprojected["shape_id"].to_numpy()
+    grid_x = grid_reprojected["x"].to_numpy()
+    grid_y = grid_reprojected["y"].to_numpy()
+
+    result = xr.DataArray(
+        aggregated,
+        dims=("shape_id", "cell"),
+        coords={
+            "shape_id": shape_ids,
+            "cell": np.arange(n_cells),
+            "x": ("cell", grid_x),
+            "y": ("cell", grid_y),
+        },
+        name=availability.name,
+        attrs=availability.attrs,
+    )
+
+    result = result.set_index(cell=("y", "x")).unstack("cell")
+    print("result constructed:", time.perf_counter() - t0)
+
+    return result
+
+
+def get_bins(cutout, shapes, tech, specs, bin_edges=None, per_shape=False):
+    """Get bins.
 
     Parameters
     ----------
@@ -181,8 +257,12 @@ def get_bins(
     if bin_edges is None:
         bins = [(0.0, 1.0)]
     else:
-        assert len(bin_edges) == len(set(bin_edges)), "bin_edges should not contain duplicates"
-        assert all(0.0 <= b <= 1.0 for b in bin_edges), "bin_edges should be between 0 and 1"
+        assert len(bin_edges) == len(set(bin_edges)), (
+            "bin_edges should not contain duplicates"
+        )
+        assert all(0.0 <= b <= 1.0 for b in bin_edges), (
+            "bin_edges should be between 0 and 1"
+        )
         bin_edges += [1.0]
         bin_edges = sorted(list(set(bin_edges)))
         bins = list(zip(bin_edges[:-1], bin_edges[1:]))
@@ -197,14 +277,11 @@ def get_bins(
     # I = np.ceil(I)
 
     if n_bins > 1:
-        # compute a raster describing temporal mean capacity factor, 
+        # compute a raster describing temporal mean capacity factor,
         # as a measure of the resource quality.
-        cf_mean = convert(
-            aggregate_time="mean",
-            **specs,
-        )
+        cf_mean = convert(aggregate_time="mean", **specs)
 
-    # get the indicator matrix 
+    # get the indicator matrix
     # indicator is 1 if the grid cell belongs to the shape and bin, and 0 otherwise.
     # cells that are partially overlapping are counted in
     # indicator(shape, bin, x, y)
@@ -227,8 +304,8 @@ def get_bins(
     upper_edges = bins[:, 1:]
     class_masks = (cf_by_bus_bin >= lower_edges) & (cf_by_bus_bin < upper_edges)
 
-    # matrix (area) is a weighted indicator matrix 
-    # it maps the cutout grid to shapes, and optionally also bins, ifavailab multiple bins are specified. 
+    # matrix (area) is a weighted indicator matrix
+    # it maps the cutout grid to shapes, and optionally also bins, ifavailab multiple bins are specified.
     # It is weighted by the availability, therefore it is in units of area.
     # we apply the availability here, so that we can later easily compute the power potential.
     # matrix = availability * indicator(shape, bin, x, y)
