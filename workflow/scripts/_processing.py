@@ -3,9 +3,49 @@ import time
 import geopandas as gpd
 import numpy as np
 import xarray as xr
-from atlite.gis import ExclusionContainer
 from gregor.disaggregate import get_belongs_to_matrix
 from rasterio.features import rasterize
+
+
+def get_cf(availability, shapes, cutout, tech, specs, bin_edges=None, mode="cf"):
+    # assign availability to shapes and cutout cells, then aggregate
+    # availability_agg(shape_id, y, x)
+    availability_agg = assign_to_shapes_and_aggregate3(availability, shapes, cutout)
+
+    # TODO skip get_cf_mean, get_bin_masks if no bin_edges are given
+    if bin_edges is not None:
+        # cf_mean(y, x)
+        cf_mean = get_cf_mean(cutout, tech, specs)
+
+        # bin_masks(bin, shape_id, y, x)
+        bin_masks = get_bin_masks(
+            cf_mean=cf_mean,
+            availability=availability_agg,
+            bin_edges=bin_edges,
+            mode=mode,
+            per_shape=True,
+        )
+
+        # matrix(bin, shape_id, y, x) = availability_agg * bin_masks
+        matrix = (availability_agg * bin_masks).transpose("bin", "shape_id", "y", "x")
+
+    else:
+        # matrix(shape_id, y, x) = availability_agg
+        matrix = availability_agg.transpose("shape_id", "y", "x")
+
+    # layout = area * capacity_per_sqkm
+    print(matrix.indexes)
+    profiles = getattr(cutout, tech)(
+        # layout=layout,
+        matrix=matrix,
+        index=matrix.indexes["bin"],
+        per_unit=True,
+        return_capacity=False,
+        # dask_kwargs=dask_kwargs,
+        **specs,
+    )
+
+    return profiles
 
 
 def get_belongs_to_matrix(
@@ -231,8 +271,8 @@ def assign_to_shapes_and_aggregate3(availability, shapes, cutout):
     return result
 
 
-def get_bins_2(cutout, tech, specs, bin_edges=None):
-    """Bins the cutout grid according to annual capacity factors.
+def get_cf_mean(cutout, tech, specs):
+    """Get mean capacity factors.
 
     Parameters:
     -----------
@@ -241,16 +281,55 @@ def get_bins_2(cutout, tech, specs, bin_edges=None):
         technology name
     specs: dict
         Technology specifications
-    bin_edges: list[float] (optional)
-        Edges of the bins (between 0 and 1). If None, a single bin (0, 1) is used.
 
     Returns:
     --------
-    masks: xarray.DataArray
-        Boolean masks for each bin
+    cf_mean: xarray.DataArray
+        Mean capacity factors
     """
     time_start = time.time()
 
+    # compute mean capacity factor,
+    # as a measure of the resource quality.
+    # TODO: clip to shapes before computing
+    cf_mean = getattr(cutout, tech)(aggregate_time="mean", **specs)
+    print(f"Computed mean capacity factor in {time.time() - time_start:.2f} seconds.")
+    return cf_mean
+
+
+def get_bin_masks(cf_mean, availability, bin_edges, mode="cf", per_shape=False):
+    """Create masks assigning grid cells to capacity-factor bins.
+
+    Parameters
+    ----------
+    cf_mean : xarray.DataArray
+        Mean capacity factor with dimensions ("y", "x").
+
+    availability : xarray.DataArray
+        Available area with dimensions ("shape_id", "y", "x").
+
+    bin_edges : sequence of float
+        Bin boundaries in [0, 1].
+
+        For ``mode="cf"``, these are fractions of the CF range.
+
+        For ``mode="availability"``, these are availability-weighted
+        percentiles of CF.
+
+    mode : {"cf", "availability"}
+        Method used to determine the actual CF boundaries.
+
+    per_shape : bool
+        If True, calculate boundaries independently for each shape.
+
+    Returns:
+    -------
+    xarray.DataArray
+        Boolean mask with dimensions:
+
+        - (bin, y, x) if per_shape=False
+        - (bin, shape_id, y, x) if per_shape=True
+    """
     # define the  bins
     if bin_edges is None:
         bin_edges = [(0.0, 1.0)]
@@ -260,116 +339,53 @@ def get_bins_2(cutout, tech, specs, bin_edges=None):
         if not all(0.0 <= edge <= 1.0 for edge in bin_edges):
             raise ValueError("bin_edges must be between 0 and 1.")
 
-    n_bins = len(bin_edges) - 1
+    print(f"Using bin edges: {bin_edges}")
+    bin_edges = np.asarray(bin_edges, dtype=float)
 
-    if n_bins == 1:
-        # create a mask without computing cf.
-        return xr.DataArray(
-            np.ones((1, cutout.shape[1], cutout.shape[0]), dtype=bool),
-            dims=("bin", "y", "x"),
-            coords={"bin": [0]},
-        )
+    # n_bins = len(bin_edges) - 1
+    # if n_bins == 1:
+    #     # create a mask without computing cf.
+    #     return xr.DataArray(
+    #         np.ones((1, cutout.shape[1], cutout.shape[0]), dtype=bool),
+    #         dims=("bin", "y", "x"),
+    #         coords={"bin": [0]},
+    #     )
 
-    # compute mean capacity factor,
-    # as a measure of the resource quality.
-    cf_mean = getattr(cutout, tech)(aggregate_time="mean", **specs)
-    print(f"Computed mean capacity factor in {time.time() - time_start:.2f} seconds.")
+    if mode != "cf":
+        raise NotImplementedError("Only mode='cf' is implemented so far.")
 
-    # map relative bin edges onto the CF range.
-    epsilon = 1e-3
-    cf_min = cf_mean.min(dim=("x", "y")) - epsilon
-    cf_max = cf_mean.max(dim=("x", "y")) + epsilon
+    if not per_shape:
+        cf_min = cf_mean.min(dim=("x", "y"), skipna=True)
+        cf_max = cf_mean.max(dim=("x", "y"), skipna=True)
 
-    edges = cf_min + (cf_max - cf_min) * xr.DataArray(bin_edges, dims="bin_edge")
+        # edges(bin_edge)
+        edges = cf_min + (cf_max - cf_min) * xr.DataArray(bin_edges, dims="bin_edge")
 
-    lower = edges.isel(bin_edge=slice(None, -1))
-    upper = edges.isel(bin_edge=slice(1, None))
+    if per_shape:
+        # Broadcast cf_mean onto the shape dimension and mask it
+        # wherever the shape has no availability.
+        data = xr.Dataset(
+            {"availability": availability, "cf_mean": cf_mean}
+        ).broadcast_like(availability)
 
-    # Rename the edge dimension so broadcasting produces one dimension
-    # for the bins.
-    lower = lower.rename(bin_edge="bin")
-    upper = upper.rename(bin_edge="bin")
+        data["cf_mean"] = data.cf_mean.where(data.availability > 0)
 
-    return ((cf_mean >= lower) & (cf_mean < upper)), cf_mean
+        cf_min = data.cf_mean.min(dim=("x", "y"), skipna=True)
+        cf_max = data.cf_mean.max(dim=("x", "y"), skipna=True)
 
+        # edges(shape_id, bin_edge)
+        edges = cf_min + (cf_max - cf_min) * xr.DataArray(bin_edges, dims="bin_edge")
 
-def get_bins(cutout, shapes, tech, specs, bin_edges=None, per_shape=False):
-    """Get bins.
+    lower_edges = edges.isel(bin_edge=slice(None, -1))
+    upper_edges = edges.isel(bin_edge=slice(1, None))
 
-    Parameters
-    ----------
-    cutout : atlite.Cutout
-        Cutout of meteorological data.
-    shapes : gpd.GeoDataFrame
-        Shapes to aggregate to.
-    tech : str
-        Technology, for example "wind" or "pv".
-    specs : dict
-        Keyword arguments passed to atlite conversion method.
-    capacity_per_sq_km : float
-        Capacity density of the technology in units of power/area, e.g. MW/km².
-    bin_edges : list[float] | None
-        Quantile boundaries counted from the top. If None, all resources
-        will be aggregated to one bin. Passing a list of quantiles will create bins.
-        To include the least productive resources, include 0.0 in the list of quantiles.
-    per_shape: bool | False
-        If True, resources will be binned per shape, otherwise for the entire cutout.
-    """
-    # define bins
-    if bin_edges is None:
-        bins = [(0.0, 1.0)]
-    else:
-        assert len(bin_edges) == len(set(bin_edges)), (
-            "bin_edges should not contain duplicates"
-        )
-        assert all(0.0 <= b <= 1.0 for b in bin_edges), (
-            "bin_edges should be between 0 and 1"
-        )
-        bin_edges += [1.0]
-        bin_edges = sorted(list(set(bin_edges)))
-        bins = list(zip(bin_edges[:-1], bin_edges[1:]))
+    # Rename bin_edge -> bin so xarray broadcasts the bin dimension.
+    lower_edges = lower_edges.rename(bin_edge="bin")
+    upper_edges = upper_edges.rename(bin_edge="bin")
 
-    n_bins = len(bins)
+    class_masks = (cf_mean >= lower_edges) & (cf_mean < upper_edges)
 
-    # get the conversion method
-    convert = getattr(cutout, tech)
+    if per_shape:
+        return class_masks.transpose("bin", "shape_id", "y", "x")
 
-    I = cutout.availabilitymatrix(shapes, ExclusionContainer())
-    print(np.unique(I))
-    # I = np.ceil(I)
-
-    if n_bins > 1:
-        # compute a raster describing temporal mean capacity factor,
-        # as a measure of the resource quality.
-        cf_mean = convert(aggregate_time="mean", **specs)
-
-    # get the indicator matrix
-    # indicator is 1 if the grid cell belongs to the shape and bin, and 0 otherwise.
-    # cells that are partially overlapping are counted in
-    # indicator(shape, bin, x, y)
-    # TODO: wrap into get_indicator(cutout, shapes, criterion, bins, per_shape)
-    if n_bins > 1:
-        cf_by_bus = cf_mean * I.where(I > 0)
-    else:
-        cf_by_bus = I.where(I > 0)
-
-    epsilon = 1e-3
-    cf_min, cf_max = (
-        cf_by_bus.min(dim=["x", "y"]) - epsilon,
-        cf_by_bus.max(dim=["x", "y"]) + epsilon,
-    )
-    normed_bins = xr.DataArray(np.linspace(0, 1, n_bins + 1), dims=["bin"])
-    bins = cf_min + (cf_max - cf_min) * normed_bins
-
-    cf_by_bus_bin = cf_by_bus.expand_dims(bin=range(n_bins))
-    lower_edges = bins[:, :-1]
-    upper_edges = bins[:, 1:]
-    class_masks = (cf_by_bus_bin >= lower_edges) & (cf_by_bus_bin < upper_edges)
-
-    # matrix (area) is a weighted indicator matrix
-    # it maps the cutout grid to shapes, and optionally also bins, ifavailab multiple bins are specified.
-    # It is weighted by the availability, therefore it is in units of area.
-    # we apply the availability here, so that we can later easily compute the power potential.
-    # matrix = availability * indicator(shape, bin, x, y)
-
-    return class_masks
+    return class_masks.transpose("bin", "y", "x")
