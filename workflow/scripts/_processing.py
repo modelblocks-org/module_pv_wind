@@ -34,7 +34,8 @@ def get_cf(availability, shapes, cutout, tech, specs, bin_edges=None, mode="cf")
         matrix = availability_agg.transpose("shape_id", "y", "x")
 
     # layout = area * capacity_per_sqkm
-    print(matrix.indexes)
+
+    matrix = matrix.stack(shape_bin=["shape_id", "bin"], spatial=["y", "x"])
     profiles = getattr(cutout, tech)(
         # layout=layout,
         matrix=matrix,
@@ -384,6 +385,8 @@ def get_bin_masks(cf_mean, availability, bin_edges, mode="cf", per_shape=False):
     upper_edges = upper_edges.rename(bin_edge="bin")
 
     class_masks = (cf_mean >= lower_edges) & (cf_mean < upper_edges)
+
+    class_masks = class_masks.assign_coords(bin=np.arange(len(bin_edges) - 1))
 
     if per_shape:
         return class_masks.transpose("bin", "shape_id", "y", "x")
