@@ -1,16 +1,50 @@
 import time
+from pathlib import Path
 
+import atlite
 import geopandas as gpd
 import numpy as np
+import rasterio as rio
 import xarray as xr
 from gregor.disaggregate import get_belongs_to_matrix
 from rasterio.features import rasterize
 
 
+def cf_aggregated_from_raster_layout(
+    path_cutout: str | Path,
+    layout: xr.DataArray,
+    shapes: gpd.GeoDataFrame,
+    tech_specs: dict,
+    bin_edges: list = None,
+    mode="cf",
+) -> xr.DataArray:
+    """Aggregated capacity factors from a raster layout."""
+    # load cutout
+    cutout = atlite.Cutout(path_cutout)
+
+    # resample layout to the resolution of the cutout
+    match = (
+        cutout.uniform_layout()
+        .rio.write_crs(cutout.crs)
+        .rio.write_transform(cutout.transform)
+    )
+    layout_matched = layout.squeeze(drop=True)
+    layout_matched = layout_matched.rio.reproject_match(
+        match, resampling=rio.enums.Resampling.sum, nodata=0
+    )
+
+    # compute capacity factors
+    capacityfactors = getattr(cutout, tech_specs["tech"])(
+        shapes=shapes, layout=layout_matched, **tech_specs["specs"]
+    )
+
+    return capacityfactors
+
+
 def get_cf(availability, shapes, cutout, tech, specs, bin_edges=None, mode="cf"):
     # assign availability to shapes and cutout cells, then aggregate
     # availability_agg(shape_id, y, x)
-    availability_agg = assign_to_shapes_and_aggregate3(availability, shapes, cutout)
+    availability_agg = assign_to_shapes_and_aggregate(availability, shapes, cutout)
 
     # TODO skip get_cf_mean, get_bin_masks if no bin_edges are given
     if bin_edges is not None:
@@ -86,7 +120,7 @@ def get_belongs_to_matrix(
     return xr.DataArray(arr, coords=raster.coords, dims=raster.dims)
 
 
-def assign_to_shapes_and_aggregate(availability, shapes, cutout):
+def assign_to_shapes_and_aggregate_old(availability, shapes, cutout):
     """Assigns each pixel of the availability raster to a shape and grid cell and then aggregates.
 
     Usually, the availability raster has a higher spatial resolution than the cutout grid.
@@ -175,7 +209,7 @@ def assign_to_shapes_and_aggregate(availability, shapes, cutout):
     return res
 
 
-def assign_to_shapes_and_aggregate3(availability, shapes, cutout):
+def assign_to_shapes_and_aggregate(availability, shapes, cutout):
     """Assign each pixel of availability to a shape and cutout grid cell and aggregates.
 
     The availability raster is not resampled before aggregation.
@@ -185,6 +219,14 @@ def assign_to_shapes_and_aggregate3(availability, shapes, cutout):
     xarray.DataArray
         Aggregated availability with dimensions ("shape_id", "y_cutout", "x_cutout").
     """
+    # aggregate availability to union of shapes
+    from gregor.aggregate import aggregate_raster_to_polygon
+
+    availabilty_poly = aggregate_raster_to_polygon(
+        availability, shapes.set_index("shape_id").geometry
+    )
+    availability_total = availabilty_poly["sum"].sum()
+
     t0 = time.perf_counter()
 
     margin = 1
@@ -268,7 +310,17 @@ def assign_to_shapes_and_aggregate3(availability, shapes, cutout):
 
     result = result.set_index(cell=("y", "x")).unstack("cell")
     print("result constructed:", time.perf_counter() - t0)
-
+    print("Result:", result.sum().values, "total availability:", availability_total)
+    print("Difference", result.sum().values - availability_total)
+    result_by_shape = result.sum(dim=["x", "y"])
+    result_by_shape.name = "area_potential"
+    result_by_shape = result_by_shape.to_series()
+    print(result_by_shape)
+    print(availabilty_poly, "total availability:", availability_total)
+    compare = availabilty_poly.join(result_by_shape)
+    compare["diff"] = compare["sum"] - compare["area_potential"]
+    compare = compare.sort_values("diff", ascending=False)
+    print(compare)
     return result
 
 
@@ -389,6 +441,8 @@ def get_bin_masks(cf_mean, availability, bin_edges, mode="cf", per_shape=False):
     class_masks = class_masks.assign_coords(bin=np.arange(len(bin_edges) - 1))
 
     if per_shape:
+        # select only the grid cells that have availability in each shape
+        class_masks = class_masks.where(availability > 0, other=False)
         return class_masks.transpose("bin", "shape_id", "y", "x")
 
     return class_masks.transpose("bin", "y", "x")
