@@ -1,1 +1,5 @@
 # Module settings that users cannot modify.
+cutout_features:
+  - "wind"  # needed for tech='wind'
+  - "influx"  # needed for tech=`pv`, `csp`, or `solar thermal`
+  - "temperature"  # needed for tech=`pv` or `solar thermal`

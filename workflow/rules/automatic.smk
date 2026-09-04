@@ -7,6 +7,8 @@ if config["download_cutout"]:
             "<cutout>",
         conda:
             "../envs/atlite.yaml"
+        params:
+            features=internal["cutout_features"],
         script:
             "../scripts/download_cutout.py"
 

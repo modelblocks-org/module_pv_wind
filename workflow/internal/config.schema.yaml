@@ -53,15 +53,6 @@ properties:
         items:
           type: string
         description: "Time range for the cutout in ISO 8601 format."
-      features:
-        type: array
-        items:
-          type: string
-        description: "List of features to include in the cutout."
-      show_progress:
-        type: boolean
-        default: true
-        description: "Whether to show progress during the cutout download."
       monthly_requests:
         type: boolean
         default: false
