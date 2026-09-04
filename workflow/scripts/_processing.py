@@ -65,6 +65,7 @@ def cf_aggregated_from_raster_layout(
         # dask_kwargs=dask_kwargs,
         **specs,
     )
+    capacity_factors = capacity_factors.unstack()
 
     return capacity_factors
 

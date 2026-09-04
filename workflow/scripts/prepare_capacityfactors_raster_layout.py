@@ -1,9 +1,9 @@
 """Prepare PV capacityfactors, given a cutout, a layout, shapes to aggregate to and technology specifications."""
 
-import _backend_atlite as _backend_atlite
 import geopandas as gpd
 import rioxarray as rxr
 from _plots import create_plot_map, create_plot_overview
+from _processing import cf_aggregated_from_raster_layout
 from _schemas import Shapes
 from _utils import read_yaml
 
@@ -16,14 +16,13 @@ def prepare_capacityfactors_raster_layout(
     shapes = gpd.read_parquet(path_shapes)
     shapes = Shapes.validate(shapes)
     tech_specs = read_yaml(path_tech_specs)
-    layout = rxr.open_rasterio(path_layout, masked=True)
+    layout = rxr.open_rasterio(path_layout, masked=True).squeeze()
 
     # prepare inputs
-    shapes = shapes.set_index("shape_id")
     layout = layout.fillna(0)
 
     # compute capacityfactors
-    capacityfactors = _backend_atlite.cf_aggregated_from_raster_layout(
+    capacityfactors = cf_aggregated_from_raster_layout(
         path_cutout=path_cutout, layout=layout, shapes=shapes, tech_specs=tech_specs
     )
 
