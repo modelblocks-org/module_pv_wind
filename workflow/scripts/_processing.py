@@ -54,7 +54,7 @@ def cf_aggregated_from_raster_layout(
         # Don't bin if no bin_edges are given
         # matrix(shape_id, y, x) = availability_agg(shape_id, y, x)
         matrix = layout_agg.transpose("shape_id", "y", "x")
-        matrix = matrix.stack(shape=["shape_id"], spatial=["y", "x"])
+        matrix = matrix.stack(spatial=["y", "x"])
         index = matrix.indexes["shape_id"]
 
     capacity_factors = getattr(cutout, tech)(
