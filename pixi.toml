@@ -41,3 +41,4 @@ test-unit = { cmd = "pytest tests/unit" }
 
 [tasks]
 test-integration = { cmd = "pytest tests/integration_test.py" }
+test-local = { cmd = "pytest tests/local_test.py" }
