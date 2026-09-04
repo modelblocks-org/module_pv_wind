@@ -1,4 +1,6 @@
-# Module Input-Output structure for automated doc. generation
+# Module Input-Output structure for automated docs generation
+convention_version: v1.0.0
+
 pathvars:
   snakemake_defaults:
     logs:
@@ -29,9 +31,9 @@ pathvars:
   results:
     capacity_factors:
       default: "<results>/{cutout}/{shape}/{layout}/capacityfactors_{tech}.nc"
-      description: Capacity factors for the specified technology.
+      description: "Capacity factors for the specified technology."
 wildcards:
-  cutout: Cutout name
-  tech: Technology name
-  layout: Layout name
-  shape: Shape name
+  cutout: "Cutout name"
+  tech: "Technology name"
+  layout: "Layout name"
+  shape: "Shape name"
