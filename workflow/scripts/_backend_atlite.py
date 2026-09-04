@@ -57,7 +57,7 @@ def cf_aggregated_from_raster_layout(
     get_capacityfactors = getattr(cutout, tech_specs["tech"])
 
     capacityfactors = get_capacityfactors(
-        shapes=shapes, layout=layout_matched, **tech_specs["specs"]
+        shapes=shapes, layout=layout_matched, per_unit=True, **tech_specs["specs"]
     )
 
     return capacityfactors
