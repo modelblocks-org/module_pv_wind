@@ -4,7 +4,6 @@ from pathlib import Path
 import atlite
 import geopandas as gpd
 import numpy as np
-import rasterio as rio
 import xarray as xr
 from gregor.disaggregate import get_belongs_to_matrix
 from rasterio.features import rasterize
@@ -21,66 +20,53 @@ def cf_aggregated_from_raster_layout(
     """Aggregated capacity factors from a raster layout."""
     # load cutout
     cutout = atlite.Cutout(path_cutout)
+    tech = tech_specs["tech"]
+    specs = tech_specs["specs"]
 
-    # resample layout to the resolution of the cutout
-    match = (
-        cutout.uniform_layout()
-        .rio.write_crs(cutout.crs)
-        .rio.write_transform(cutout.transform)
-    )
-    layout_matched = layout.squeeze(drop=True)
-    layout_matched = layout_matched.rio.reproject_match(
-        match, resampling=rio.enums.Resampling.sum, nodata=0
-    )
+    # assign layout to shapes and cutout cells, then aggregate
+    # layout_agg(shape_id, y, x)
+    layout_agg = assign_to_shapes_and_aggregate(layout, shapes, cutout)
 
-    # compute capacity factors
-    capacityfactors = getattr(cutout, tech_specs["tech"])(
-        shapes=shapes, layout=layout_matched, **tech_specs["specs"]
-    )
-
-    return capacityfactors
-
-
-def get_cf(availability, shapes, cutout, tech, specs, bin_edges=None, mode="cf"):
-    # assign availability to shapes and cutout cells, then aggregate
-    # availability_agg(shape_id, y, x)
-    availability_agg = assign_to_shapes_and_aggregate(availability, shapes, cutout)
-
-    # TODO skip get_cf_mean, get_bin_masks if no bin_edges are given
     if bin_edges is not None:
-        # cf_mean(y, x)
+        # If bin_edges are defined, bin the layout
+        # according to the mean capacity factor
+        # first, calculate cf_mean(y, x)
         cf_mean = get_cf_mean(cutout, tech, specs)
 
-        # bin_masks(bin, shape_id, y, x)
+        # create the bin_masks(bin, shape_id, y, x)
         bin_masks = get_bin_masks(
             cf_mean=cf_mean,
-            availability=availability_agg,
+            availability=layout_agg,
             bin_edges=bin_edges,
             mode=mode,
             per_shape=True,
         )
 
-        # matrix(bin, shape_id, y, x) = availability_agg * bin_masks
-        matrix = (availability_agg * bin_masks).transpose("bin", "shape_id", "y", "x")
+        # combine layout and bin_masks
+        # matrix(bin, shape_id, y, x) =
+        #   layout_agg(shape_id, y, x)
+        #   * bin_masks(bin, shape_id, y, x)
+        matrix = (layout_agg * bin_masks).transpose("bin", "shape_id", "y", "x")
+        matrix = matrix.stack(shape_bin=["shape_id", "bin"], spatial=["y", "x"])
+        index = matrix.indexes["bin"]
 
     else:
-        # matrix(shape_id, y, x) = availability_agg
-        matrix = availability_agg.transpose("shape_id", "y", "x")
+        # Don't bin if no bin_edges are given
+        # matrix(shape_id, y, x) = availability_agg(shape_id, y, x)
+        matrix = layout_agg.transpose("shape_id", "y", "x")
+        matrix = matrix.stack(shape=["shape_id"], spatial=["y", "x"])
+        index = matrix.indexes["shape_id"]
 
-    # layout = area * capacity_per_sqkm
-
-    matrix = matrix.stack(shape_bin=["shape_id", "bin"], spatial=["y", "x"])
-    profiles = getattr(cutout, tech)(
-        # layout=layout,
+    capacity_factors = getattr(cutout, tech)(
         matrix=matrix,
-        index=matrix.indexes["bin"],
+        index=index,
         per_unit=True,
         return_capacity=False,
         # dask_kwargs=dask_kwargs,
         **specs,
     )
 
-    return profiles
+    return capacity_factors
 
 
 def get_belongs_to_matrix(
@@ -219,14 +205,6 @@ def assign_to_shapes_and_aggregate(availability, shapes, cutout):
     xarray.DataArray
         Aggregated availability with dimensions ("shape_id", "y_cutout", "x_cutout").
     """
-    # aggregate availability to union of shapes
-    from gregor.aggregate import aggregate_raster_to_polygon
-
-    availabilty_poly = aggregate_raster_to_polygon(
-        availability, shapes.set_index("shape_id").geometry
-    )
-    availability_total = availabilty_poly["sum"].sum()
-
     t0 = time.perf_counter()
 
     margin = 1
@@ -310,17 +288,7 @@ def assign_to_shapes_and_aggregate(availability, shapes, cutout):
 
     result = result.set_index(cell=("y", "x")).unstack("cell")
     print("result constructed:", time.perf_counter() - t0)
-    print("Result:", result.sum().values, "total availability:", availability_total)
-    print("Difference", result.sum().values - availability_total)
-    result_by_shape = result.sum(dim=["x", "y"])
-    result_by_shape.name = "area_potential"
-    result_by_shape = result_by_shape.to_series()
-    print(result_by_shape)
-    print(availabilty_poly, "total availability:", availability_total)
-    compare = availabilty_poly.join(result_by_shape)
-    compare["diff"] = compare["sum"] - compare["area_potential"]
-    compare = compare.sort_values("diff", ascending=False)
-    print(compare)
+
     return result
 
 
