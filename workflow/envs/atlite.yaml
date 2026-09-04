@@ -10,3 +10,4 @@ dependencies:
   - rasterio
   - geopandas
   - pandera-geopandas=0.31.1
+  - gregor>=0.1.0
