@@ -7,9 +7,10 @@ if config["layout"] == "raster":
             layout="<layout_raster>",
             shapes="<shapes>",
         output:
-            data="<capacity_factors>",
-            plot_map="<plot_map>",
-            plot_overview="<plot_overview>",
+            cf="<capacity_factors>",
+            cf_mean="<capacity_factors_mean>",
+            matrix="<matrix>",
+            plot="<plot>",
         conda:
             "../envs/atlite.yaml"
         script:
@@ -25,8 +26,7 @@ elif config["layout"] == "point":
             shapes="<shapes>",
         output:
             data="<capacity_factors>",
-            plot_map="<plot_map>",
-            plot_overview="<plot_overview>",
+            plot="<plot>",
         conda:
             "../envs/atlite.yaml"
         script:
