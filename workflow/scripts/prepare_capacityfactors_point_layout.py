@@ -3,7 +3,7 @@
 import geopandas as gpd
 import pandas as pd
 from _backend_atlite._aggregate_point_layout import cf_aggregated_from_point_layout
-from _plots import create_plot_map, create_plot_overview
+from _plots import create_map_capacityfactors, create_plot_overview
 from _schemas import PointLayout, Shapes
 from _utils import read_yaml
 
@@ -39,13 +39,8 @@ if __name__ == "__main__":
         path_layout=snakemake.input.layout,
         path_output=snakemake.output.data,
     )
-    create_plot_map(
+    create_map_capacityfactors(
         path_capacityfactors=snakemake.output.data,
         path_shapes=snakemake.input.shapes,
-        path_map=snakemake.output.plot_map,
-    )
-    create_plot_overview(
-        path_capacityfactors=snakemake.output.data,
-        path_shapes=snakemake.input.shapes,
-        path_plot=snakemake.output.plot_overview,
+        path_output=snakemake.output.plot,
     )

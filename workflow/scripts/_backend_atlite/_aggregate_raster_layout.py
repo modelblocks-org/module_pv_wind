@@ -27,12 +27,12 @@ def cf_aggregated_from_raster_layout(
     # layout_agg(shape_id, y, x)
     layout_agg = assign_to_shapes_and_aggregate(layout, shapes, cutout)
 
+    # calculate cf_mean(y, x)
+    cf_mean = get_cf_mean(cutout, tech, specs)
+
     if bin_edges is not None:
         # If bin_edges are defined, bin the layout
         # according to the mean capacity factor
-        # first, calculate cf_mean(y, x)
-        cf_mean = get_cf_mean(cutout, tech, specs)
-
         # create the bin_masks(bin, shape_id, y, x)
         bin_masks = get_bin_masks(
             cf_mean=cf_mean,
@@ -67,7 +67,7 @@ def cf_aggregated_from_raster_layout(
     )
     capacity_factors = capacity_factors.unstack()
 
-    return capacity_factors
+    return capacity_factors, cf_mean, matrix
 
 
 def get_belongs_to_matrix(
