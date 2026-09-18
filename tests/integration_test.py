@@ -28,12 +28,12 @@ def integration_path(user_path: Path, module_path: Path):
         shutil.rmtree(integration_dir / "results/", ignore_errors=True)
     user_integ_dir = integration_dir / "resources/user"
     files_to_copy = [
-        "cutouts_era5_2017.nc",
-        "shapes_Europe_NUTS2_onshore.parquet",
-        "shapes_NLD_NUTS2_onshore.parquet",
-        "layouts_raster_europe.tif",
-        "layouts_points_NLD.csv",
-        "tech_specs_wind_onshore_3MW.yaml",
+        "cutouts/era5_2017.nc",
+        "shapes/Europe_NUTS2_onshore.parquet",
+        "shapes/NLD_NUTS2_onshore.parquet",
+        "layouts_raster/europe.tif",
+        "layouts_point/NLD.csv",
+        "tech_specs/wind_onshore_3MW.yaml",
     ]
     for file in files_to_copy:
         destination_file = Path(user_integ_dir / file)

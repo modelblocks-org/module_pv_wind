@@ -10,21 +10,23 @@ min_version("9.19")
 # This allows users to re-wire how the module is used in their workflow with ease.
 pathvars:
     # User resources
-    cutout="<resources>/user/cutouts_{cutout}.nc",
-    tech_specs="<resources>/user/tech_specs_{tech}.yaml",
-    layout_raster="<resources>/user/layouts_{layout}.tif",
-    layout_point="<resources>/user/layouts_{layout}.csv",
-    shapes="<resources>/user/shapes_{shape}.parquet",
+    cutout="<resources>/user/cutouts/{cutout}.nc",
+    tech_specs="<resources>/user/tech_specs/{tech}.yaml",
+    layout_raster="<resources>/user/layouts_raster/{layout}.tif",
+    layout_point="<resources>/user/layouts_point/{layout}.csv",
+    shapes="<resources>/user/shapes/{shape}.parquet",
     # Module results
-    capacity_factors="<results>/{cutout}/{shape}/{layout}/capacityfactors_{tech}.nc",
-    capacity_factors_mean="<results>/{cutout}/{shape}/{layout}/capacityfactors_{tech}_mean.nc",
-    matrix="<results>/{cutout}/{shape}/{layout}/capacityfactors_{tech}_matrix.nc",
-    plot="<results>/{cutout}/{shape}/{layout}/capacityfactors_map_{tech}.png",
-
+    capacity_factors="<results>/cutouts/{cutout}/shapes/{shape}/layouts_{layout_type}/{layout}/capacityfactors_{tech}.nc",
+    capacity_factors_mean="<results>/cutouts/{cutout}/shapes/{shape}/layouts_{layout_type}/{layout}/capacityfactors_{tech}_mean.nc",
+    matrix="<results>/cutouts/{cutout}/shapes/{shape}/layouts_{layout_type}/{layout}/capacityfactors_{tech}_matrix.nc",
+    plot="<results>/cutouts/{cutout}/shapes/{shape}/layouts_{layout_type}/{layout}/capacityfactors_map_{tech}.png",
 
 # Load the example configuration. This will be overridden by users.
 configfile: workflow.source_path("../config/config.yaml")
 
+
+wildcard_constraints:
+    layout_type="raster|point",
 
 # Validate the configuration using the schema file.
 validate(config, workflow.source_path("internal/config.schema.yaml"))

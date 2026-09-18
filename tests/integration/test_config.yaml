@@ -1,14 +1,4 @@
-module_pv_wind_raster:
-  download_cutout: False
-  backend: atlite
-  aggregate: True
-  cutout_params:
-    module: era5
-    x: [3.4, 7.2]
-    y: [50.7, 53.5]
-    time: ["2017-01-01", "2017-01-03"]
-
-module_pv_wind_point:
+module_pv_wind:
   download_cutout: False
   backend: atlite
   aggregate: True
