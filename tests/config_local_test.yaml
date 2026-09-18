@@ -1,6 +1,5 @@
 download_cutout: False
 backend: atlite
-layout: raster  # raster or point
 aggregate: True
 cutout_params:
   module: era5

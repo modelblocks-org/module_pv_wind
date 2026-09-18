@@ -1,7 +1,6 @@
 # A minimal example of how to configure this module
 download_cutout: True
 backend: atlite
-layout: raster  # raster or point
 aggregate: true
 cutout_params:
   module: era5
