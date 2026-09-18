@@ -4,7 +4,7 @@ if config["download_cutout"]:
 
     rule download_cutout:
         output:
-            "<cutout>",
+            "<resources>/automatic/cutout.nc",
         conda:
             "../envs/atlite.yaml"
         params:
@@ -12,5 +12,7 @@ if config["download_cutout"]:
         script:
             "../scripts/download_cutout.py"
 
+    path_cutout=ancient(rules.download_cutout.output[0])
 
-path_cutout = ancient("<cutout>")
+else:
+    path_cutout = ancient("<cutout>")
