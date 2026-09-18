@@ -1,8 +1,8 @@
 """Prepare PV capacityfactors, given a cutout, a layout, shapes to aggregate to and technology specifications."""
 
-import _backend_atlite as _backend_atlite
 import geopandas as gpd
 import pandas as pd
+from _backend_atlite._aggregate_point_layout import cf_aggregated_from_point_layout
 from _plots import create_plot_map, create_plot_overview
 from _schemas import PointLayout, Shapes
 from _utils import read_yaml
@@ -23,7 +23,7 @@ def prepare_capacityfactors_point_layout(
     shapes = shapes.set_index("shape_id")
 
     # compute capacityfactors
-    capacityfactors = _backend_atlite.cf_aggregated_from_point_layout(
+    capacityfactors = cf_aggregated_from_point_layout(
         path_cutout=path_cutout, layout=layout, shapes=shapes, tech_specs=tech_specs
     )
 

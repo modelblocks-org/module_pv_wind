@@ -2,8 +2,8 @@
 
 import geopandas as gpd
 import rioxarray as rxr
+from _backend_atlite._aggregate_raster_layout import cf_aggregated_from_raster_layout
 from _plots import create_plot_map, create_plot_overview
-from _processing import cf_aggregated_from_raster_layout
 from _schemas import Shapes
 from _utils import read_yaml
 

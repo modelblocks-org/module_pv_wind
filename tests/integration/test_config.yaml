@@ -8,7 +8,6 @@ module_pv_wind_raster:
     x: [3.4, 7.2]
     y: [50.7, 53.5]
     time: ["2017-01-01", "2017-01-03"]
-    features: ['height', 'wind', 'influx', 'temperature']
 
 module_pv_wind_point:
   download_cutout: False
@@ -20,4 +19,3 @@ module_pv_wind_point:
     x: [3.4, 7.2]
     y: [50.7, 53.5]
     time: ["2017-01-01", "2017-01-03"]
-    features: ['height', 'wind', 'influx', 'temperature']
