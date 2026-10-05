@@ -1,4 +1,4 @@
-# PV and wind area potentials and capacity factors 
+# PV and wind area potentials and capacity factors
 
 This data module produces area potentials and capacity factors for PV and wind at arbitrary spatial resolution.
 
