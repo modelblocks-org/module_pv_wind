@@ -1,7 +1,6 @@
 import atlite
 import pandas as pd
 
-
 if __name__ == "__main__":
     cutout_params = snakemake.config["build_cutout"]["cutout_params"]
 
