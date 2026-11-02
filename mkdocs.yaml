@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://squidfunk.github.io/mkdocs-material/schema.json
 
-site_name: PV and wind area potentials and capacity factors 
+site_name: PV and wind area potentials and capacity factors
 site_url: https://module_pv_wind.readthedocs.io/
 repo_name: module_pv_wind
 repo_url: https://github.com/calliope-project/module_pv_wind/
